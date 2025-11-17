@@ -1,0 +1,14 @@
+- scope: process
+  name: "sra_p1"
+  var:
+    extra_args: ""
+    my_sra_argument: "This is just a sra."
+
+- scope: process
+  name: "sra_p2"
+  var:
+    map.file: "./test/data.txt"
+
+- scope: global
+  var:
+    mk.output: "./test/test-output"
