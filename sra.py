@@ -77,11 +77,16 @@ if __name__ == "__main__":
         sra_jobs=[]
         for sraid in prefetch.var["sraid"].split(",") : 
             
-            prefetch_=prefetch
-            prefetch.execute()
-            fastq_dump.execute( prefetch.hash )
+            prefetch_=prefetch.clone()
+            prefetch_.var["sraid"]=sraid
+            prefetch_.execute()
+
+            fastq_dump_=fastq_dump.clone()
+            fastq_dump_.execute( prefetch_.hash )
+
+            sra_jobs.append( fastq_dump_.hash )
         
-        jawm.Process.wait( )
+        jawm.Process.wait( sra_jobs )
 
     if workflow( "test", workflows ) :
 
