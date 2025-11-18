@@ -1,31 +1,9 @@
-- scope: process
-  name: "sra_p1"
-  container: "ubuntu:24.04"
+- scope: global
   environment: "docker"
   var:
-    extra_args: ""
-    my_sra_argument: "This is just an example."
-    mk.output: "./test/test-output"
-
-- scope: process
-  name: "sra_p2"
-  container: "python:3.13-slim"
-  environment: "docker"
-  var:
-    map.file: "./test/data.txt"
-    mk.output: "./test/test-output"
-
-- scope: process
-  name: "sra_p3"
-  container: "r-base:4.5.1"
-  environment: "docker"
-  var:
-    mk.output: "./test/test-output"
-
-# - scope: global
-#   var:
-#     mk.output: "./test/test-output"
+    mk.downloads_folder: "./test/test-output"
+    sraid: "SRR000001"
  
 - scope: hash
-  include: ./test/test-output/sra.txt
+  include: ./test/test-output/SRR000001.fastq
   overwrite: true # overwrite any existing hash already present on the logs folder
