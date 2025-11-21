@@ -5,4 +5,8 @@
     mk.raw_data: "./test/test-output"
     sraid: "SRR000001"
     geoacc: "GSE129642"
-    groups: "GSM3717989:WT-L4;GSM3717990:WT-L4;GSM3717991:sftb-1;GSM3717992:sftb-1"
+    groups:
+      GSM3717989;WT-L4\n
+      GSM3717990;WT-L4\n
+      GSM3717991;sftb-1\n
+      GSM3717992;sftb-1

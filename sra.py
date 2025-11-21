@@ -42,8 +42,9 @@ else :
     groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
     groups=[ s.split(";") for s in groups.split("\\n") ]
     groups=pd.DataFrame(groups, columns=["sample","group"] )
+    for c in groups.columns.tolist():
+        groups[c]=groups[c].apply(lambda x: x.strip() )
     groups["group"] = groups["group"].apply(lambda x: age.safe_filename(x) )
-
     gsms=groups["sample"].tolist()
     samples_df=age.gsms_to_sra_samples(gsms)
     samples_df=samples_df.drop( [ "group" ] , axis=1 )
@@ -303,10 +304,12 @@ if __name__ == "__main__":
         # read the respective geo accession and create samples sheet
         read_geo.execute()
         jawm.Process.wait( read_geo.hash )
+        sys.exit(0)
 
         input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['geoacc']}.samples.xlsx"  )
 
         df=pd.read_excel( input_xlsx )
+        print(df)
         sra_ids=df["Run"].tolist()
 
     else:
