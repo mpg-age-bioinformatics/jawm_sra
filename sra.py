@@ -304,12 +304,10 @@ if __name__ == "__main__":
         # read the respective geo accession and create samples sheet
         read_geo.execute()
         jawm.Process.wait( read_geo.hash )
-        sys.exit(0)
 
         input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['geoacc']}.samples.xlsx"  )
 
         df=pd.read_excel( input_xlsx )
-        print(df)
         sra_ids=df["Run"].tolist()
 
     else:
