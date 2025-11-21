@@ -1,7 +1,7 @@
 - scope: global
   environment: "docker"
   var:
-    mk.downloads_folder: "./test/test-output"
+    mk.raw_data: "./test/test-output"
     sraid: "SRR000001"
  
 - scope: hash

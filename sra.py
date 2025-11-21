@@ -4,12 +4,14 @@ import os
 
 read_geo=jawm.Process( 
     name="read_geo",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["downloads_folder"], f"{p.var['geoacc']}.samples.xlsx"  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f"{p.var['geoacc']}.samples.xlsx"  ) ) ,
     script="""#!/usr/bin/env python3
 import AGEpy as age
 import os
 import requests
 import pandas as pd
+import re
+import unicodedata
 
 def url_exists(url: str, timeout: int = 5) -> bool:
     try:
@@ -35,39 +37,44 @@ elif "{{groups}}" == "" :
 else :
 
     # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups=[ s.split(":") for s in "{{groups}}".replace(" ", "").split(";") ]
+    groups="{{groups}}".replace("\\x01", "" )
+    groups=groups.strip().strip(";")
+    groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
+    groups=[ s.split(";") for s in groups.split("\\n") ]
     groups=pd.DataFrame(groups, columns=["sample","group"] )
+    groups["group"] = groups["group"].apply(lambda x: age.safe_filename(x) )
+
     gsms=groups["sample"].tolist()
     samples_df=age.gsms_to_sra_samples(gsms)
     samples_df=samples_df.drop( [ "group" ] , axis=1 )
     samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
 
 
-if not os.path.isdir("{{downloads_folder}}" ) :
-    os.makedirs( "{{downloads_folder}}" )
+if not os.path.isdir("{{raw_data}}" ) :
+    os.makedirs( "{{raw_data}}" )
 
-outfile_xlsx=os.path.join( "{{downloads_folder}}" , "{{geoacc}}"+".samples.xlsx" )
-outfile_tsv=os.path.join( "{{downloads_folder}}" , "{{geoacc}}"+".samples.tsv" )
+outfile_xlsx=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.xlsx" )
+outfile_tsv=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.tsv" )
 
 samples_df.to_excel( outfile_xlsx, index=False )
 samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 """,
     desc={
-        "downloads_folder": "Downloads folder.",
+        "raw_data": "Downloads folder.",
         "geoacc":"geo accession",
         "url_datasheet":"",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
-            supply a dictionary like '<geo_sample>:<group_name>;<geo_sample>:<group_name>;..' \
+            supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"
     },
-    container="mpgagebioinformatics/agepy:f92ee75"
+    container="mpgagebioinformatics/agepy:441ee35"
 )
 
 prefetch=jawm.Process( 
     name="prefetch",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["downloads_folder"], f'{p.var["sraid"]}.touch'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.touch'  ) ) ,
     script="""#!/bin/bash
-cd {{downloads_folder}}
+cd {{raw_data}}
 mkdir sra
 cd sra
 prefetch --max-size u -p {{sraid}}
@@ -76,7 +83,7 @@ while [ $? -ne 0 ]; do
 done
 """,
     desc={
-        "downloads_folder": "Downloads folder.",
+        "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
     },
     container="mpgagebioinformatics/sra:3.2.1"
@@ -84,10 +91,10 @@ done
 
 fastq_dump=jawm.Process( 
     name="fastq_dump",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["downloads_folder"], f'{p.var["sraid"]}.touch'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.touch'  ) ) ,
     script="""#!/bin/bash
 set -e
-cd {{downloads_folder}}/sra
+cd {{raw_data}}/sra
 
 shopt -s nullglob
 
@@ -109,7 +116,7 @@ touch {{sraid}}.touch
 rm -rf {{sraid}}
 """,
     desc={
-        "downloads_folder": "Downloads folder.",
+        "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
     },
     container="mpgagebioinformatics/sra:3.2.1"
@@ -118,13 +125,16 @@ rm -rf {{sraid}}
 
 relabel_geo=jawm.Process( 
     name="relabel_geo",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["downloads_folder"], "relabel_geo.touch"  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "relabel_geo.touch"  ) ) ,
     script="""#!/usr/bin/env python3
 import pandas as pd
 import os
 import gzip
 import shutil
 from pathlib import Path
+import re
+import unicodedata
+import AGEpy as age
 
 def concat_gz_files(files, output):
     with gzip.open(output, "wt") as outfile:
@@ -141,9 +151,9 @@ def add_rep_suffix(groups):
         output.append(f"rep_{counts[g]}")
     return output
 
-os.chdir(f"{{downloads_folder}}/sra")
+os.chdir(f"{{raw_data}}/sra")
 
-input_xlsx=os.path.join( "{{downloads_folder}}" , "{{geoacc}}"+".samples.xlsx" )
+input_xlsx=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.xlsx" )
 
 df=pd.read_excel( input_xlsx )
 df = (
@@ -154,17 +164,23 @@ df = (
 if "{{groups}}" != ""  :
 
     # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups=[ s.split(":") for s in "{{groups}}".split(";") ]
+    groups="{{groups}}".replace("\\x01", "" )
+    groups=groups.strip().strip(";")
+    groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
+    groups=[ s.split(";") for s in groups.split("\\n") ]
     groups=pd.DataFrame(groups, columns=["sample","group"] )
-    df=df.drop( [ "group" ] , axis=1 )
+    groups=groups.drop( [ "group" ] , axis=1 )
+    df["sample"]=df["sample"].apply(lambda x: x.replace(" ", ""))
     df=pd.merge( groups, df, on=["sample"], how="inner" )
+
+df["group"]=df["group"].apply(lambda x: age.safe_filename(x) )
 
 df["rep"]=add_rep_suffix( df["group"] )
 
 for experiment in df["Experiment"].tolist() :
-    runs=df.loc[ df["Experiment"] == experiment , "Run" ].split(",")
+    runs=df.loc[ df["Experiment"] == experiment , "Run" ].iloc[0].split(",")
     layout=df.loc[ df["Experiment"] == experiment , "LibraryLayout" ]
-    rep=df.loc[ df["Experiment"] == experiment , "rep" ].split(",")
+    rep=df.loc[ df["Experiment"] == experiment , "rep" ].iloc[0].split(",")
     group=df.loc[ df["Experiment"] == experiment , "group" ]
 
     if len(runs) == 1 :
@@ -246,22 +262,24 @@ for experiment in df["Experiment"].tolist() :
 
 """,
     desc={
-        "downloads_folder": "Downloads folder.",
-        "geoacc":"geo accession", 
-    },
-    container="mpgagebioinformatics/agepy:f92ee75"
+        "raw_data": "Downloads folder.",
+        "geoacc":"geo accession",
+        "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
+            supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
+            otherwise leave it as ''"    },
+    container="mpgagebioinformatics/agepy:441ee35"
 )
 
 # sorted.fastq.gz
 test_unpigz=jawm.Process( 
     name="test_unpigz",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["downloads_folder"], f'{p.var["sraid"]}.fastq'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.fastq'  ) ) ,
     script="""#!/bin/bash
-cd {{downloads_folder}}
+cd {{raw_data}}
 unpigz {{sraid}}.fastq.gz
 """,
     desc={
-        "downloads_folder": "Downloads folder.",
+        "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
     },
     container="mpgagebioinformatics/sra:3.2.1"
@@ -286,7 +304,7 @@ if __name__ == "__main__":
         read_geo.execute()
         jawm.Process.wait( read_geo.hash )
 
-        input_xlsx=os.path.join( read_geo.var["downloads_folder"], f"{read_geo.var['geoacc']}.samples.xlsx"  )
+        input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['geoacc']}.samples.xlsx"  )
 
         df=pd.read_excel( input_xlsx )
         sra_ids=df["Run"].tolist()
