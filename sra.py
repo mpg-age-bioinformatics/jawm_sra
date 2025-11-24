@@ -171,7 +171,8 @@ if "{{groups}}" != ""  :
     groups=[ s.split(";") for s in groups.split("\\n") ]
     groups=pd.DataFrame(groups, columns=["sample","group"] )
     groups=groups.drop( [ "group" ] , axis=1 )
-    df["sample"]=df["sample"].apply(lambda x: x.replace(" ", ""))
+    groups["sample"]=groups["sample"].apply(lambda x: x.strip())
+    df["sample"]=df["sample"].apply(lambda x: x.strip())
     df=pd.merge( groups, df, on=["sample"], how="inner" )
 
 df["group"]=df["group"].apply(lambda x: age.safe_filename(x) )
