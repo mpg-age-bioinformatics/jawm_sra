@@ -202,10 +202,14 @@ for experiment in df["Experiment"].tolist() :
             os.rename( old_name_2, new_name_2 )
 
             file = Path(new_name_1)
+            file.parent == Path('.')      # current working directory
+            file.parent.parent == Path('..')        
             new_location = file.parent.parent / file.name  # ../file.txt
             file.rename(new_location)
 
             file = Path(new_name_2)
+            file.parent == Path('.')      # current working directory
+            file.parent.parent == Path('..')   
             new_location = file.parent.parent / file.name  # ../file.txt
             file.rename(new_location)
 
