@@ -182,7 +182,7 @@ for experiment in df["Experiment"].tolist() :
     runs=df.loc[ df["Experiment"] == experiment , "Run" ].iloc[0].split(",")
     layout=df.loc[ df["Experiment"] == experiment , "LibraryLayout" ].iloc[0]
     rep=df.loc[ df["Experiment"] == experiment , "rep" ].iloc[0].split(",")
-    group=df.loc[ df["Experiment"] == experiment , "group" ].iloc[0]
+    group=df.loc[ df["Experiment"] == experiment , "group" ].iloc[0][0]
 
     if len(runs) == 1 :
         
