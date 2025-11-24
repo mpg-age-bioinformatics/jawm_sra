@@ -193,48 +193,28 @@ for experiment in df["Experiment"].tolist() :
         if layout == "PAIRED" :
             
             old_name_1=f"{run}_1.fastq.gz" 
-            new_name_1=f"{group}.{rep}.read_1.fastq.gz"
+            new_name_1=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
             print( f"Renaming {old_name_1} as {new_name_1}" )
             os.rename( old_name_1, new_name_1 )
 
             old_name_2=f"{run}_2.fastq.gz" 
-            new_name_2=f"{group}.{rep}.read_2.fastq.gz"
+            new_name_2=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_2.fastq.gz" )
             print( f"Renaming {old_name_2} as {new_name_2}" )
             os.rename( old_name_2, new_name_2 )
-
-            file = Path(new_name_1)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')        
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
-
-            file = Path(new_name_2)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')   
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
-
-        
         
         else:
 
             old_name=f"{run}.fastq.gz" 
-            new_name=f"{group}.{rep}.read_1.fastq.gz"
+            new_name=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
             print( f"Renaming {old_name} as {new_name}" )
             os.rename( old_name, new_name )
-
-            file = Path(new_name)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')  
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
 
     else:    
         
         if layout == "PAIRED" :
             
-            new_name_1=f"{group}.{rep}.read_1.fastq.gz"
-            new_name_2=f"{group}.{rep}.read_2.fastq.gz"
+            new_name_1=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
+            new_name_2=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_2.fastq.gz" )
 
             files_1=[ f"{s}_1.fastq.gz" for s in runs ]
             files_2=[ f"{s}_2.fastq.gz" for s in runs ]
@@ -245,35 +225,16 @@ for experiment in df["Experiment"].tolist() :
             print( f"Concatenating {files_1_} as {new_name_1}" )
             concat_gz_files( files_1, new_name_1 )
             print( f"Concatenating {files_2_} as {new_name_2}" )
-            concat_gz_files( files_2, new_name_2 )
-
-            file = Path(new_name_1)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')  
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
-
-            file = Path(new_name_2)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')  
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
-        
+            concat_gz_files( files_2, new_name_2 )       
 
         else:
 
-            new_name=f"{group}.{rep}.read_1.fastq.gz"
+            new_name=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
             files=[ f"{s}.fastq.gz" for s in runs ]
             files_=", ".join(files)
 
             print( f"Concatenating {files_} as {new_name}" )
             concat_gz_files( files, new_name )
-
-            file = Path(new_name)
-            file.parent == Path('.')      # current working directory
-            file.parent.parent == Path('..')  
-            new_location = file.parent.parent / file.name  # ../file.txt
-            file.rename(new_location)
             
 Path(os.path.join( "{{raw_data}}","sra", "relabel_geo.touch"  )).touch()
 """,
