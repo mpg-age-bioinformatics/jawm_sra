@@ -73,7 +73,7 @@ samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 
 prefetch=jawm.Process( 
     name="prefetch",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.touch'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", f'{p.var["sraid"]}.touch'  ) ) ,
     script="""#!/bin/bash
 cd {{raw_data}}
 mkdir sra
@@ -92,7 +92,7 @@ done
 
 fastq_dump=jawm.Process( 
     name="fastq_dump",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.touch'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", f'{p.var["sraid"]}.touch'  ) ) ,
     script="""#!/bin/bash
 set -e
 cd {{raw_data}}/sra
