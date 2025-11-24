@@ -120,7 +120,7 @@ rm -rf {{sraid}}
         "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
     },
-    manager_slurm={"--mem":"20GB", "-t":"1:00:00", "-c":"8" }
+    manager_slurm={"--mem":"20GB", "-t":"1:00:00", "-c":"8" },
     container="mpgagebioinformatics/sra:3.2.1"
 )
 
