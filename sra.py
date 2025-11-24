@@ -126,7 +126,7 @@ rm -rf {{sraid}}
 
 relabel_geo=jawm.Process( 
     name="relabel_geo",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "relabel_geo.touch"  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", "relabel_geo.touch"  ) ) ,
     script="""#!/usr/bin/env python3
 import pandas as pd
 import os
@@ -261,7 +261,8 @@ for experiment in df["Experiment"].tolist() :
             file = Path(new_name)
             new_location = file.parent.parent / file.name  # ../file.txt
             file.rename(new_location)
-
+            
+Path(os.path.join( "{{raw_data}}","sra", "relabel_geo.touch"  )).touch()
 """,
     desc={
         "raw_data": "Downloads folder.",
