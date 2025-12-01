@@ -1,6 +1,50 @@
 import jawm
 import os
+import gzip
+import requests
 
+AGEPY_IMAGE="mpgagebioinformatics/agepy:7c412ae"
+
+def get_unique_sample_organism(accession: str):
+    """
+    Given a GEO accession (e.g., 'GSE129642'), download the series matrix file
+    and return the unique organism value from the '!Sample_organism_ch1' row.
+    Raises an error if more than one unique value is found.
+    """
+
+    # Build prefix like GSE129nnn
+    prefix = accession[:-3] + "nnn"
+    url = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{accession}/matrix/{accession}_series_matrix.txt.gz"
+
+    # Download
+    response = requests.get(url)
+    response.raise_for_status()
+
+    # Read gzip content
+    content = gzip.decompress(response.content).decode("utf-8")
+
+    organisms = set()
+
+    for line in content.splitlines():
+        if line.startswith("!Sample_organism_ch1"):
+            fields = line.split("\t")
+            # Drop the first element ("!Sample_organism_ch1")
+            raw_values = fields[1:]
+
+            for v in raw_values:
+                # Remove optional surrounding quotes
+                v = v.strip().strip('"')
+                if v:
+                    organisms.add(v)
+
+    if not organisms:
+        raise ValueError("No '!Sample_organism_ch1' entries found in file.")
+
+    if len(organisms) > 1:
+        raise ValueError(f"Multiple organisms found: {organisms}")
+
+
+    return organisms.pop().lower().replace(" ","_")
 
 read_geo=jawm.Process( 
     name="read_geo",
@@ -68,7 +112,7 @@ samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"
     },
-    container="mpgagebioinformatics/agepy:441ee35"
+    container=AGEPY_IMAGE
 )
 
 prefetch=jawm.Process( 
@@ -244,7 +288,7 @@ Path(os.path.join( "{{raw_data}}","sra", "relabel_geo.touch"  )).touch()
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"    },
-    container="mpgagebioinformatics/agepy:441ee35"
+    container=AGEPY_IMAGE
 )
 
 # sorted.fastq.gz

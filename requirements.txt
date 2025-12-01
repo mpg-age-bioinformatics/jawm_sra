@@ -1,2 +1,5 @@
 pandas
 openpyxl
+urllib3
+pyopenssl
+cryptography
