@@ -2,8 +2,31 @@ import jawm
 import os
 import gzip
 import requests
+from collections import Counter
 
-AGEPY_IMAGE="mpgagebioinformatics/agepy:7c412ae"
+AGEPY_IMAGE="mpgagebioinformatics/agepy:50ce16b"
+
+def get_nconcatenations( tsv ) :
+    first_col = []
+    with open(tsv, "r") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if parts:  # skip empty lines
+                first_col.append(parts[0])
+
+    # Count occurrences
+    counts = Counter(first_col)
+
+    num_duplicated_items = sum(1 for c in counts.values() if c > 1)
+
+    with open(tsv, "r") as f:
+        for line in f:
+            layout = line.rstrip("\n").split("\t")[7]
+            if layout == "PAIRED" :
+                num_duplicated_items=int( num_duplicated_items * 2 )
+                break
+
+    return num_duplicated_items
 
 def get_unique_sample_organism(accession: str):
     """
@@ -131,6 +154,7 @@ done
         "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
     },
+    manager_slurm={"--mem":"20GB", "-t":"1:00:00", "-c":"8" },
     container="mpgagebioinformatics/sra:3.2.1"
 )
 
@@ -181,6 +205,8 @@ from pathlib import Path
 import re
 import unicodedata
 import AGEpy as age
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 
 def concat_gz_files(files, output):
     with gzip.open(output, "wt") as outfile:
@@ -188,6 +214,7 @@ def concat_gz_files(files, output):
             with gzip.open(fname, "rt") as infile:
                 for line in infile:
                     outfile.write(line)
+
 
 def add_rep_suffix(groups):
     counts = {}
@@ -197,97 +224,108 @@ def add_rep_suffix(groups):
         output.append(f"rep_{counts[g]}")
     return output
 
+
+raw_data = os.path.abspath("{{raw_data}}")
+
+input_xlsx = os.path.join(raw_data, "{{geoacc}}" + ".samples.xlsx")
+
 os.chdir(f"{{raw_data}}/sra")
 
-input_xlsx=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.xlsx" )
-
-df=pd.read_excel( input_xlsx )
+df = pd.read_excel(input_xlsx)
 df = (
     df.groupby("sample", as_index=False)
       .agg(lambda s: ",".join(sorted(set(s.dropna().astype(str)))))
 )
 
-if "{{groups}}" != ""  :
-
+if "{{groups}}" != "":
     # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups="{{groups}}".replace("\\x01", "" )
-    groups=groups.strip().strip(";")
-    groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
-    groups=[ s.split(";") for s in groups.split("\\n") ]
-    groups=pd.DataFrame(groups, columns=["sample","group"] )
-    groups=groups.drop( [ "group" ] , axis=1 )
-    groups["sample"]=groups["sample"].apply(lambda x: x.strip())
-    df["sample"]=df["sample"].apply(lambda x: x.strip())
-    df=pd.merge( groups, df, on=["sample"], how="inner" )
+    groups = "{{groups}}".replace("\\x01", "")
+    groups = groups.strip().strip(";")
+    groups = re.sub(r'\s*([;])\s*', r'\\1', groups)
+    groups = [s.split(";") for s in groups.split("\\n")]
+    groups = pd.DataFrame(groups, columns=["sample", "group"])
+    groups = groups.drop(["group"], axis=1)
+    groups["sample"] = groups["sample"].apply(lambda x: x.strip())
+    df["sample"] = df["sample"].apply(lambda x: x.strip())
+    df = pd.merge(groups, df, on=["sample"], how="inner")
 
-df["group"]=df["group"].apply(lambda x: age.safe_filename(x) )
+df["group"] = df["group"].apply(lambda x: age.safe_filename(x))
+df["rep"] = add_rep_suffix(df["group"])
 
-df["rep"]=add_rep_suffix( df["group"] )
+# Collect concatenation jobs to run in parallel
+futures = []
 
-for experiment in df["Experiment"].tolist() :
-    runs=df.loc[ df["Experiment"] == experiment , "Run" ].iloc[0].split(",")
-    layout=df.loc[ df["Experiment"] == experiment , "LibraryLayout" ].iloc[0]
-    rep=df.loc[ df["Experiment"] == experiment , "rep" ].iloc[0]
-    group=df.loc[ df["Experiment"] == experiment , "group" ].iloc[0]
+with ProcessPoolExecutor(max_workers=int({{parallel}})) as executor:
+    for experiment in df["Experiment"].tolist():
+        runs = df.loc[df["Experiment"] == experiment, "Run"].iloc[0].split(",")
+        layout = df.loc[df["Experiment"] == experiment, "LibraryLayout"].iloc[0]
+        rep = df.loc[df["Experiment"] == experiment, "rep"].iloc[0]
+        group = df.loc[df["Experiment"] == experiment, "group"].iloc[0]
 
-    if len(runs) == 1 :
-        
-        run=runs[0]
+        # Single run: just rename synchronously
+        if len(runs) == 1:
+            run = runs[0]
 
-        if layout == "PAIRED" :
-            
-            old_name_1=f"{run}_1.fastq.gz" 
-            new_name_1=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
-            print( f"Renaming {old_name_1} as {new_name_1}" )
-            os.rename( old_name_1, new_name_1 )
+            if layout == "PAIRED":
+                old_name_1 = f"{run}_1.fastq.gz"
+                new_name_1 = os.path.join(raw_data, f"{group}.{rep}.read_1.fastq.gz")
+                print(f"Renaming {old_name_1} as {new_name_1}")
+                os.rename(old_name_1, new_name_1)
 
-            old_name_2=f"{run}_2.fastq.gz" 
-            new_name_2=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_2.fastq.gz" )
-            print( f"Renaming {old_name_2} as {new_name_2}" )
-            os.rename( old_name_2, new_name_2 )
-        
+                old_name_2 = f"{run}_2.fastq.gz"
+                new_name_2 = os.path.join(raw_data, f"{group}.{rep}.read_2.fastq.gz")
+                print(f"Renaming {old_name_2} as {new_name_2}")
+                os.rename(old_name_2, new_name_2)
+
+            else:
+                old_name = f"{run}.fastq.gz"
+                new_name = os.path.join(raw_data, f"{group}.{rep}.read_1.fastq.gz")
+                print(f"Renaming {old_name} as {new_name}")
+                os.rename(old_name, new_name)
+
+        # Multiple runs: schedule concatenations in the process pool
         else:
+            if layout == "PAIRED":
+                new_name_1 = os.path.join(raw_data, f"{group}.{rep}.read_1.fastq.gz")
+                new_name_2 = os.path.join(raw_data, f"{group}.{rep}.read_2.fastq.gz")
 
-            old_name=f"{run}.fastq.gz" 
-            new_name=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
-            print( f"Renaming {old_name} as {new_name}" )
-            os.rename( old_name, new_name )
+                files_1 = [f"{s}_1.fastq.gz" for s in runs]
+                files_2 = [f"{s}_2.fastq.gz" for s in runs]
 
-    else:    
-        
-        if layout == "PAIRED" :
-            
-            new_name_1=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
-            new_name_2=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_2.fastq.gz" )
+                files_1_str = ", ".join(files_1)
+                files_2_str = ", ".join(files_2)
 
-            files_1=[ f"{s}_1.fastq.gz" for s in runs ]
-            files_2=[ f"{s}_2.fastq.gz" for s in runs ]
+                print(f"Concatenating {files_1_str} as {new_name_1}")
+                futures.append(executor.submit(concat_gz_files, files_1, new_name_1))
 
-            files_1_=", ".join(files_1)
-            files_2_=", ".join(files_2)
+                print(f"Concatenating {files_2_str} as {new_name_2}")
+                futures.append(executor.submit(concat_gz_files, files_2, new_name_2))
 
-            print( f"Concatenating {files_1_} as {new_name_1}" )
-            concat_gz_files( files_1, new_name_1 )
-            print( f"Concatenating {files_2_} as {new_name_2}" )
-            concat_gz_files( files_2, new_name_2 )       
+            else:
+                new_name = os.path.join(raw_data, f"{group}.{rep}.read_1.fastq.gz")
+                files = [f"{s}.fastq.gz" for s in runs]
+                files_str = ", ".join(files)
 
-        else:
+                print(f"Concatenating {files_str} as {new_name}")
+                futures.append(executor.submit(concat_gz_files, files, new_name))
 
-            new_name=os.path.join( "{{raw_data}}", f"{group}.{rep}.read_1.fastq.gz" )
-            files=[ f"{s}.fastq.gz" for s in runs ]
-            files_=", ".join(files)
+    # Wait for all concatenations to complete and propagate any exceptions
+    for fut in as_completed(futures):
+        fut.result()
 
-            print( f"Concatenating {files_} as {new_name}" )
-            concat_gz_files( files, new_name )
-            
-Path(os.path.join( "{{raw_data}}","sra", "relabel_geo.touch"  )).touch()
+# Only touch the file once everything is finished
+Path(os.path.join(raw_data, "sra", "relabel_geo.touch")).touch()
 """,
+    var={
+        "parallel": 4
+    },
     desc={
         "raw_data": "Downloads folder.",
         "geoacc":"geo accession",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"    },
+    manager_slurm={"--mem":"20GB", "-t":"1:00:00", "-c":"4" },
     container=AGEPY_IMAGE
 )
 
