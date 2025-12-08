@@ -9,7 +9,7 @@ from io import StringIO
 from typing import Optional, Set, List
 from bs4 import BeautifulSoup
 
-AGEPY_IMAGE="mpgagebioinformatics/agepy:ed793fd"
+AGEPY_IMAGE="mpgagebioinformatics/agepy:9acb5de"
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 
@@ -174,18 +174,13 @@ def get_nconcatenations( tsv ) :
             parts = line.rstrip("\n").split("\t")
             if parts:  # skip empty lines
                 first_col.append(parts[0])
+                if parts[4] == "PAIRED" :
+                    first_col.append(parts[0])
 
     # Count occurrences
     counts = Counter(first_col)
 
     num_duplicated_items = sum(1 for c in counts.values() if c > 1)
-
-    with open(tsv, "r") as f:
-        for line in f:
-            layout = line.rstrip("\n").split("\t")[5]
-            if layout == "PAIRED" :
-                num_duplicated_items=int( num_duplicated_items * 2 )
-                break
 
     return num_duplicated_items
 
@@ -220,9 +215,9 @@ def process_groups(groups):
     groups=pd.DataFrame(groups, columns=["sample","group"] )
     for c in groups.columns.tolist():
         groups[c]=groups[c].apply(lambda x: x.strip() )
+    groups=groups.drop_duplicates(subset=["sample"])
     groups["group"] = groups["group"].apply(lambda x: age.safe_filename(x) )
     return groups
-
 
 if url_exists("{{url_datasheet}}"):
     
