@@ -3,8 +3,128 @@ import os
 import gzip
 import requests
 from collections import Counter
+import xml.etree.ElementTree as ET
+import csv
+from io import StringIO
+from typing import Optional, Set, List
 
-AGEPY_IMAGE="mpgagebioinformatics/agepy:50ce16b"
+AGEPY_IMAGE="mpgagebioinformatics/agepy:c86b819"
+
+EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+
+
+def _headers(email: Optional[str] = None) -> dict:
+    return {
+        "User-Agent": f"python-script (contact: {email or 'no-email-provided'})"
+    }
+
+
+def _get_runinfo_csv_for_bioproject(
+    bioproject: str,
+    email: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> str:
+    """
+    Use E-utilities to get the SRA RunInfo CSV for a BioProject (PRJNA...).
+    Returns the raw CSV text.
+    """
+    # 1) ESEARCH to get WebEnv + QueryKey for the SRA records
+    esearch_params = {
+        "db": "sra",
+        "term": bioproject,
+        "usehistory": "y",
+        "retmax": "0",
+        "retmode": "xml",
+    }
+    if api_key:
+        esearch_params["api_key"] = api_key
+
+    r = requests.get(
+        EUTILS_BASE + "esearch.fcgi",
+        params=esearch_params,
+        headers=_headers(email),
+    )
+    r.raise_for_status()
+
+    root = ET.fromstring(r.text)
+    webenv = root.findtext(".//WebEnv")
+    query_key = root.findtext(".//QueryKey")
+
+    if not webenv or not query_key:
+        raise RuntimeError(
+            f"Could not get WebEnv/QueryKey for {bioproject}. "
+            f"Response (first 300 chars): {r.text[:300]!r}"
+        )
+
+    # 2) EFETCH in "runinfo" mode → CSV
+    efetch_params = {
+        "db": "sra",
+        "query_key": query_key,
+        "WebEnv": webenv,
+        "rettype": "runinfo",
+        "retmode": "text",
+    }
+    if api_key:
+        efetch_params["api_key"] = api_key
+
+    r2 = requests.get(
+        EUTILS_BASE + "efetch.fcgi",
+        params=efetch_params,
+        headers=_headers(email),
+    )
+    r2.raise_for_status()
+    csv_text = r2.text.strip()
+
+    if not csv_text.startswith("Run,"):
+        raise RuntimeError(
+            f"RunInfo CSV for {bioproject} looks strange. "
+            f"First 300 chars: {csv_text[:300]!r}"
+        )
+
+    return csv_text
+
+
+def get_bioproject_organisms_from_sra(
+    bioproject: str,
+    email: Optional[str] = None,
+    api_key: Optional[str] = None,
+) :
+    """
+    Given a BioProject accession (e.g. 'PRJNA532357'),
+    return a list of unique organism names seen in SRA RunInfo.
+
+    Uses only standard library + 'requests', no Biopython, no pandas.
+    """
+    csv_text = _get_runinfo_csv_for_bioproject(
+        bioproject, email=email, api_key=api_key
+    )
+
+    organisms: Set[str] = set()
+
+    # Parse CSV using the standard library
+    reader = csv.DictReader(StringIO(csv_text))
+    # Common column names in RunInfo: 'ScientificName', sometimes 'Organism'
+    for row in reader:
+        name = (
+            row.get("ScientificName")
+            or row.get("Organism")
+            or row.get("sample_name")
+        )
+        if name:
+            name = name.strip()
+            if name:
+                organisms.add(name)
+
+    if not organisms:
+        raise ValueError(
+            f"No organism names found in RunInfo for {bioproject} "
+            f"(columns: {reader.fieldnames})"
+        )
+
+    # Return as a sorted list to have deterministic order
+    return sorted(organisms)
+
+
 
 def get_nconcatenations( tsv ) :
     first_col = []
@@ -21,7 +141,7 @@ def get_nconcatenations( tsv ) :
 
     with open(tsv, "r") as f:
         for line in f:
-            layout = line.rstrip("\n").split("\t")[7]
+            layout = line.rstrip("\n").split("\t")[5]
             if layout == "PAIRED" :
                 num_duplicated_items=int( num_duplicated_items * 2 )
                 break
@@ -35,43 +155,48 @@ def get_unique_sample_organism(accession: str):
     Raises an error if more than one unique value is found.
     """
 
-    # Build prefix like GSE129nnn
-    prefix = accession[:-3] + "nnn"
-    url = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{accession}/matrix/{accession}_series_matrix.txt.gz"
+    if accession.startswith("GSE"):
+        # Build prefix like GSE129nnn
+        prefix = accession[:-3] + "nnn"
+        url = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{accession}/matrix/{accession}_series_matrix.txt.gz"
 
-    # Download
-    response = requests.get(url)
-    response.raise_for_status()
+        # Download
+        response = requests.get(url)
+        response.raise_for_status()
 
-    # Read gzip content
-    content = gzip.decompress(response.content).decode("utf-8")
+        # Read gzip content
+        content = gzip.decompress(response.content).decode("utf-8")
 
-    organisms = set()
+        organisms = set()
 
-    for line in content.splitlines():
-        if line.startswith("!Sample_organism_ch1"):
-            fields = line.split("\t")
-            # Drop the first element ("!Sample_organism_ch1")
-            raw_values = fields[1:]
+        for line in content.splitlines():
+            if line.startswith("!Sample_organism_ch1"):
+                fields = line.split("\t")
+                # Drop the first element ("!Sample_organism_ch1")
+                raw_values = fields[1:]
 
-            for v in raw_values:
-                # Remove optional surrounding quotes
-                v = v.strip().strip('"')
-                if v:
-                    organisms.add(v)
+                for v in raw_values:
+                    # Remove optional surrounding quotes
+                    v = v.strip().strip('"')
+                    if v:
+                        organisms.add(v)
+
+    elif accession.startswith("PRJ"):
+
+        organisms=get_bioproject_organisms_from_sra(acc)
 
     if not organisms:
-        raise ValueError("No '!Sample_organism_ch1' entries found in file.")
+        raise ValueError("No organism found.")
 
     if len(organisms) > 1:
         raise ValueError(f"Multiple organisms found: {organisms}")
 
-
     return organisms.pop().lower().replace(" ","_")
 
-read_geo=jawm.Process( 
-    name="read_geo",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f"{p.var['geoacc']}.samples.xlsx"  ) ) ,
+
+read_acc=jawm.Process( 
+    name="read_acc",
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f"{p.var['acc']}.samples.xlsx"  ) ) ,
     script="""#!/usr/bin/env python3
 import AGEpy as age
 import os
@@ -91,20 +216,9 @@ def url_exists(url: str, timeout: int = 5) -> bool:
     except requests.RequestException:
         return False
 
-if url_exists("{{url_datasheet}}"):
-    
-    # reading pre-ready datasheets from an url
-    samples_df = pd.read_csv("{{url_datasheet}}", sep="\\t")
-
-elif "{{groups}}" == "" :
-
-    # generating samples sheet from a geo accession number
-    samples_df, groups_df, runinfo_df= age.geo_to_sra_samples( "{{geoacc}}" )
-
-else :
-
+def process_groups(groups):
     # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups="{{groups}}".replace("\\x01", "" )
+    groups=groups.replace("\\x01", "" )
     groups=groups.strip().strip(";")
     groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
     groups=[ s.split(";") for s in groups.split("\\n") ]
@@ -112,24 +226,54 @@ else :
     for c in groups.columns.tolist():
         groups[c]=groups[c].apply(lambda x: x.strip() )
     groups["group"] = groups["group"].apply(lambda x: age.safe_filename(x) )
+    return groups
+
+
+if url_exists("{{url_datasheet}}"):
+    
+    # reading pre-ready datasheets from an url
+    samples_df = pd.read_csv("{{url_datasheet}}", sep="\\t")
+
+elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("GSE") :
+
+    # generating samples sheet from a geo accession number
+    samples_df, groups_df, runinfo_df= age.geo_to_sra_samples( "{{acc}}" )
+
+elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("PRJ") :
+
+    raise ValueError("BioProject accessions must be supplemented with group information for each sample.")
+
+elif "{{acc}}".startswith("GSE") :
+
+    groups=process_groups( "{{groups}}" )
     gsms=groups["sample"].tolist()
-    samples_df=age.gsms_to_sra_samples(gsms)
+    samples_df=age.gsms_to_sra_samples( gsms )
     samples_df=samples_df.drop( [ "group" ] , axis=1 )
     samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
+    cols = list(samples_df.columns)
+    col = cols.pop(7)
+    cols.insert(5, col)
+    samples_df = samples_df[cols]
 
+elif "{{acc}}".startswith("PRJ") :
+
+    groups=process_groups("{{groups}}")
+    samples_df=age.fetch_sra_metadata_table_for_bioproject( "{{acc}}" )[[ "Run", "Experiment", "LibraryLayout" ]]
+    samples_df=pd.merge( groups, samples_df, left_on=[ "sample" ], right_on=[ "Experiment" ], how="inner" )
 
 if not os.path.isdir("{{raw_data}}" ) :
     os.makedirs( "{{raw_data}}" )
 
-outfile_xlsx=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.xlsx" )
-outfile_tsv=os.path.join( "{{raw_data}}" , "{{geoacc}}"+".samples.tsv" )
+outfile_xlsx=os.path.join( "{{raw_data}}" , "{{acc}}"+".samples.xlsx" )
+outfile_tsv=os.path.join( "{{raw_data}}" , "{{acc}}"+".samples.tsv" )
 
 samples_df.to_excel( outfile_xlsx, index=False )
 samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 """,
+    var={},
     desc={
         "raw_data": "Downloads folder.",
-        "geoacc":"geo accession",
+        "acc":"geo accession or sra bioproject",
         "url_datasheet":"",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
@@ -150,6 +294,7 @@ while [ $? -ne 0 ]; do
    prefetch --max-size u -p {{sraid}}
 done
 """,
+    var={},
     desc={
         "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
@@ -184,6 +329,7 @@ if [ -f {{sraid}}_2.fastq ] ; then pigz {{sraid}}_2.fastq ; fi
 touch {{sraid}}.touch
 rm -rf {{sraid}}
 """,
+    var={},
     desc={
         "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
@@ -227,7 +373,7 @@ def add_rep_suffix(groups):
 
 raw_data = os.path.abspath("{{raw_data}}")
 
-input_xlsx = os.path.join(raw_data, "{{geoacc}}" + ".samples.xlsx")
+input_xlsx = os.path.join(raw_data, "{{acc}}" + ".samples.xlsx")
 
 os.chdir(f"{{raw_data}}/sra")
 
@@ -321,7 +467,7 @@ Path(os.path.join(raw_data, "sra", "relabel_geo.touch")).touch()
     },
     desc={
         "raw_data": "Downloads folder.",
-        "geoacc":"geo accession",
+        "acc":"geo accession",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"    },
@@ -337,6 +483,7 @@ test_unpigz=jawm.Process(
 cd {{raw_data}}
 unpigz {{sraid}}.fastq.gz
 """,
+    var={},
     desc={
         "raw_data": "Downloads folder.",
         "sraid":"sra_id", 
@@ -363,7 +510,7 @@ if __name__ == "__main__":
         read_geo.execute()
         jawm.Process.wait( read_geo.hash )
 
-        input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['geoacc']}.samples.xlsx"  )
+        input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['acc']}.samples.xlsx"  )
 
         df=pd.read_excel( input_xlsx )
         sra_ids=df["Run"].tolist()

@@ -4,7 +4,7 @@
   var:
     mk.raw_data: "./test/test-output"
     sraid: "SRR000001"
-    geoacc: "GSE129642"
+    acc: "GSE129642"
     # groups:
     #   GSM3717989;WT-L4\n
     #   GSM3717990;WT-L4\n
