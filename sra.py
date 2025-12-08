@@ -354,12 +354,21 @@ import AGEpy as age
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-def concat_gz_files(files, output):
-    with gzip.open(output, "wt") as outfile:
-        for fname in files:
-            with gzip.open(fname, "rt") as infile:
-                for line in infile:
-                    outfile.write(line)
+def concat_gz_files( files, output, concat="{{concat}}" ):
+
+    if concat == "text": 
+        with gzip.open(output, "wt") as outfile :
+            for fname in files:
+                with gzip.open(fname, "rt") as infile :
+                    for line in infile:
+                        outfile.write(line)
+
+    elif concat == "stream" :
+        with open(output, "wb") as outfile :
+            for fname in files:
+                with open(fname, "rb") as infile :
+                    shutil.copyfileobj(infile, outfile, length=1024 * 1024)
+
 
 
 def add_rep_suffix(groups):
@@ -463,9 +472,11 @@ with ProcessPoolExecutor(max_workers=int({{parallel}})) as executor:
 Path(os.path.join(raw_data, "sra", "relabel_geo.touch")).touch()
 """,
     var={
-        "parallel": 4
+        "parallel": 4,
+        "concat":"stream"
     },
     desc={
+        "concat": "'stream or text for how you want to concat fastq.gz files when multiple files per sample exist. Default='stream' ",
         "raw_data": "Downloads folder.",
         "acc":"geo accession",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
