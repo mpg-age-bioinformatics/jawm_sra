@@ -233,17 +233,17 @@ elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("PRJ") :
 
     raise ValueError("BioProject accessions must be supplemented with group information for each sample.")
 
-elif "{{acc}}".startswith("GSE") :
+# elif "{{acc}}".startswith("GSE") :
 
-    groups=process_groups( "{{groups}}" )
-    gsms=groups["sample"].tolist()
-    samples_df=age.gsms_to_sra_samples( gsms,  email="{{email}}", api_key="{{api_key}}" )
-    samples_df=samples_df.drop( [ "group" ] , axis=1 )
-    samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
-    cols = list(samples_df.columns)
-    col = cols.pop(7)
-    cols.insert(5, col)
-    samples_df = samples_df[cols]
+#     groups=process_groups( "{{groups}}" )
+#     gsms=groups["sample"].tolist()
+#     samples_df=age.gsms_to_sra_samples( gsms,  email="{{email}}", api_key="{{api_key}}" )
+#     samples_df=samples_df.drop( [ "group" ] , axis=1 )
+#     samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
+#     cols = list(samples_df.columns)
+#     col = cols.pop(7)
+#     cols.insert(5, col)
+#     samples_df = samples_df[cols]
 
 elif "{{acc}}".startswith("PRJ") :
 

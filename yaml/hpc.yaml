@@ -1,9 +1,10 @@
 # a slurm and apptainer template for our hpc named cluster
 - scope: global
-  manager: "slurm"
-  manager_slurm: { "-p":"cluster,dedicated", "--mem":"20GB", "-t":"1:00:00", "-c":"8" }
   environment: "apptainer"
-
-# - scope: global
-#   manager: "slurm"
-#   environment: "apptainer"
+  automated_mount: False
+  environment_apptainer: { "-B":"/nexus:/nexus" }
+  manager: slurm
+  manager_slurm: { "-p":"cluster,dedicated" }
+  # before_script: "module load apptainer"
+  # manager_slurm: {"--ntasks-per-core":"2", "-p":"general,small" }
+  parallel: True

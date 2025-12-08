@@ -1,4 +1,0 @@
-- scope: global
-  var:
-    mk.raw_data: "./test/test-output"
-    sraid: "SRR000001"
