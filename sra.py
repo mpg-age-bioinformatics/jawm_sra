@@ -7,8 +7,9 @@ import xml.etree.ElementTree as ET
 import csv
 from io import StringIO
 from typing import Optional, Set, List
+from bs4 import BeautifulSoup
 
-AGEPY_IMAGE="mpgagebioinformatics/agepy:c86b819"
+AGEPY_IMAGE="mpgagebioinformatics/agepy:ed793fd"
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 
@@ -124,6 +125,46 @@ def get_bioproject_organisms_from_sra(
     # Return as a sorted list to have deterministic order
     return sorted(organisms)
 
+def get_geo_page_organism(accession: str) -> str:
+    """
+    Given a GEO accession like 'GSE129642', fetch the NCBI GEO page
+    and extract the 'Organism' entry (e.g. 'Caenorhabditis elegans').
+    """
+    accession = accession.strip()
+    url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}"
+
+    resp = requests.get(url)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Find the row in the main info table where first cell == "Organism"
+    for row in soup.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        if len(cells) >= 2 and cells[0].get_text(strip=True) == "Organism":
+            organism = cells[1].get_text(strip=True)
+            return organism
+
+    raise ValueError(f"Could not find 'Organism' entry on page for {accession!r}")
+
+def get_unique_sample_organism(accession: str):
+    organisms = set()
+
+    if accession.startswith("GSE"):
+
+        organism=get_geo_page_organism(accession)
+        organisms.add( organism )
+
+    elif accession.startswith("PRJ"):
+        organisms = get_bioproject_organisms_from_sra(accession)
+
+    if not organisms:
+        raise ValueError("No organism found.")
+
+    if len(organisms) > 1:
+        raise ValueError(f"Multiple organisms found: {organisms}")
+
+    return organisms.pop().lower().replace(" ", "_")
 
 
 def get_nconcatenations( tsv ) :
@@ -147,52 +188,6 @@ def get_nconcatenations( tsv ) :
                 break
 
     return num_duplicated_items
-
-def get_unique_sample_organism(accession: str):
-    """
-    Given a GEO accession (e.g., 'GSE129642'), download the series matrix file
-    and return the unique organism value from the '!Sample_organism_ch1' row.
-    Raises an error if more than one unique value is found.
-    """
-
-    if accession.startswith("GSE"):
-        # Build prefix like GSE129nnn
-        prefix = accession[:-3] + "nnn"
-        url = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{prefix}/{accession}/matrix/{accession}_series_matrix.txt.gz"
-
-        # Download
-        response = requests.get(url)
-        response.raise_for_status()
-
-        # Read gzip content
-        content = gzip.decompress(response.content).decode("utf-8")
-
-        organisms = set()
-
-        for line in content.splitlines():
-            if line.startswith("!Sample_organism_ch1"):
-                fields = line.split("\t")
-                # Drop the first element ("!Sample_organism_ch1")
-                raw_values = fields[1:]
-
-                for v in raw_values:
-                    # Remove optional surrounding quotes
-                    v = v.strip().strip('"')
-                    if v:
-                        organisms.add(v)
-
-    elif accession.startswith("PRJ"):
-
-        organisms=get_bioproject_organisms_from_sra(acc)
-
-    if not organisms:
-        raise ValueError("No organism found.")
-
-    if len(organisms) > 1:
-        raise ValueError(f"Multiple organisms found: {organisms}")
-
-    return organisms.pop().lower().replace(" ","_")
-
 
 read_acc=jawm.Process( 
     name="read_acc",
@@ -237,7 +232,7 @@ if url_exists("{{url_datasheet}}"):
 elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("GSE") :
 
     # generating samples sheet from a geo accession number
-    samples_df, groups_df, runinfo_df= age.geo_to_sra_samples( "{{acc}}" )
+    samples_df, groups_df, runinfo_df= age.geo_to_sra_samples( "{{acc}}", email="{{email}}", api_key="{{api_key}}" )
 
 elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("PRJ") :
 
@@ -247,7 +242,7 @@ elif "{{acc}}".startswith("GSE") :
 
     groups=process_groups( "{{groups}}" )
     gsms=groups["sample"].tolist()
-    samples_df=age.gsms_to_sra_samples( gsms )
+    samples_df=age.gsms_to_sra_samples( gsms,  email="{{email}}", api_key="{{api_key}}" )
     samples_df=samples_df.drop( [ "group" ] , axis=1 )
     samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
     cols = list(samples_df.columns)
@@ -270,12 +265,17 @@ outfile_tsv=os.path.join( "{{raw_data}}" , "{{acc}}"+".samples.tsv" )
 samples_df.to_excel( outfile_xlsx, index=False )
 samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 """,
-    var={},
+    var={
+        "email":"",
+        "api_key":""
+        },
     desc={
-        "raw_data": "Downloads folder.",
-        "acc":"geo accession or sra bioproject",
-        "url_datasheet":"",
-        "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
+        "email" : "email passed to NCBI E-utilities",
+        "api_key" : "NCBI API key for higher request limits",
+        "raw_data" : "Downloads folder.",
+        "acc" : "geo accession or sra bioproject",
+        "url_datasheet" : "",
+        "groups" : "Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"
     },

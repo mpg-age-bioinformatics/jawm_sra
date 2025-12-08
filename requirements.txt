@@ -3,3 +3,4 @@ openpyxl
 urllib3
 pyopenssl
 cryptography
+beautifulsoup4
