@@ -125,38 +125,38 @@ def get_bioproject_organisms_from_sra(
     # Return as a sorted list to have deterministic order
     return sorted(organisms)
 
-def get_geo_page_organism(accession: str) -> str:
-    """
-    Given a GEO accession like 'GSE129642', fetch the NCBI GEO page
-    and extract the 'Organism' entry (e.g. 'Caenorhabditis elegans').
-    """
-    accession = accession.strip()
-    url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}"
+# def get_geo_page_organism(accession: str) -> str:
+#     """
+#     Given a GEO accession like 'GSE129642', fetch the NCBI GEO page
+#     and extract the 'Organism' entry (e.g. 'Caenorhabditis elegans').
+#     """
+#     accession = accession.strip()
+#     url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}"
 
-    resp = requests.get(url)
-    resp.raise_for_status()
+#     resp = requests.get(url)
+#     resp.raise_for_status()
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+#     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # Find the row in the main info table where first cell == "Organism"
-    for row in soup.find_all("tr"):
-        cells = row.find_all(["td", "th"])
-        if len(cells) >= 2 and cells[0].get_text(strip=True) == "Organism":
-            organism = cells[1].get_text(strip=True)
-            return organism
+#     # Find the row in the main info table where first cell == "Organism"
+#     for row in soup.find_all("tr"):
+#         cells = row.find_all(["td", "th"])
+#         if len(cells) >= 2 and cells[0].get_text(strip=True) == "Organism":
+#             organism = cells[1].get_text(strip=True)
+#             return organism
 
-    raise ValueError(f"Could not find 'Organism' entry on page for {accession!r}")
+#     raise ValueError(f"Could not find 'Organism' entry on page for {accession!r}")
 
 def get_unique_sample_organism(accession: str):
     organisms = set()
 
-    if accession.startswith("GSE"):
+    # if accession.startswith("GSE"):
 
-        organism=get_geo_page_organism(accession)
-        organisms.add( organism )
+    #     organism=get_geo_page_organism(accession)
+    #     organisms.add( organism )
 
-    elif accession.startswith("PRJ"):
-        organisms = get_bioproject_organisms_from_sra(accession)
+    # if accession.startswith("PRJ"):
+    organisms = get_bioproject_organisms_from_sra(accession)
 
     if not organisms:
         raise ValueError("No organism found.")
