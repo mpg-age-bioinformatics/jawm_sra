@@ -168,19 +168,21 @@ def get_unique_sample_organism(accession: str):
 
 
 def get_nconcatenations( tsv ) :
-    first_col = []
+    first_read = []
+    second_read = [ ] 
     with open(tsv, "r") as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
             if parts:  # skip empty lines
-                first_col.append(parts[0])
+                first_read.append(parts[0])
                 if parts[4] == "PAIRED" :
-                    first_col.append(parts[0])
+                    second_read.append(parts[0])
 
     # Count occurrences
-    counts = Counter(first_col)
+    counts_1 = Counter(first_read)
+    counts_2 = Counter(second_read)
 
-    num_duplicated_items = sum(1 for c in counts.values() if c > 1)
+    num_duplicated_items = sum( 1 for c in counts_1.values() if c > 1 ) + sum( 1 for c in counts_2.values() if c > 1 )
 
     return num_duplicated_items
 
@@ -368,13 +370,11 @@ cd {{raw_data}}/sra
 shopt -s nullglob
 
 for f in {{sraid}}*lite ; do
-    fastq-dump --split-3 "./${f}"
-    rm -rf "${f}"
+    fastq-dump --split-3 "./${f}" && rm -rf "${f}"
 done
 
 if [ -d {{sraid}} ] ; then
-    fastq-dump --split-3 "./{{sraid}}"
-    rm -rf "{{sraid}}"
+    fastq-dump --split-3 "./{{sraid}}" && rm -rf "{{sraid}}"
 fi
 
 if [ -f {{sraid}}.fastq ] ; then pigz {{sraid}}.fastq ; fi
