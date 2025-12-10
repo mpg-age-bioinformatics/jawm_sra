@@ -394,9 +394,9 @@ rm -rf {{sraid}}
 )
 
 
-relabel_geo=jawm.Process( 
-    name="relabel_geo",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", "relabel_geo.touch"  ) ) ,
+relabel_sra=jawm.Process( 
+    name="relabel_sra",
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", "relabel_sra.touch"  ) ) ,
     script="""#!/usr/bin/env python3
 import pandas as pd
 import os
@@ -524,7 +524,7 @@ with ProcessPoolExecutor(max_workers=int({{parallel}})) as executor:
         fut.result()
 
 # Only touch the file once everything is finished
-Path(os.path.join(raw_data, "sra", "relabel_geo.touch")).touch()
+Path(os.path.join(raw_data, "sra", "relabel_sra.touch")).touch()
 """,
     var={
         "parallel": 4,
@@ -611,9 +611,9 @@ if __name__ == "__main__":
 
     if workflow( ["geo"], workflows ) and workflow( ["sra"], workflows ) :
 
-        relabel_geo.execute( )
+        relabel_sra.execute( )
 
-        jawm.Process.wait( relabel_geo.hash )
+        jawm.Process.wait( relabel_sra.hash )
 
     if workflow( "test", workflows ) :
 
