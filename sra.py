@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import csv
 from io import StringIO
 from typing import Optional, Set, List
-from bs4 import BeautifulSoup
+# from bs4 import BeautifulSoup
 
 AGEPY_IMAGE="mpgagebioinformatics/agepy:9acb5de"
 
@@ -206,13 +206,73 @@ def url_exists(url: str, timeout: int = 5) -> bool:
     except requests.RequestException:
         return False
 
+def load_table(file_path):
+    _, ext = os.path.splitext(file_path)
+    ext = ext.lower()
+
+    if ext in [".xls", ".xlsx"]:
+        # Excel file
+        df=pd.read_excel(file_path)
+    
+    elif ext in [".tsv", ".csv"]:
+
+        # TSV file (tab-separated)
+        print("Reading file as tab separated file")
+
+        try:
+            
+            df=pd.read_csv( file_path, sep="\\t" )
+
+        except:
+            
+            raise ValueError(f"Could not read tab separated file")
+
+    else:
+        
+        raise ValueError(f"Unsupported file type: {ext}")
+
+    if len( df.columns.tolist() ) < 2 :
+        raise ValueError(f"Imported table had less than 2 columns.")
+
+    if len( df.columns.tolist() ) > 2 :
+
+        cols = list(df.columns)
+        cols_=[ s for s in cols if s == "Experiment" ]+[ s for s in cols if s in ["group", "groups"] ]
+
+        if len(cols_) == 2 :
+            df=df[cols_]
+
+        else:
+
+            exp_idx = cols.index("Experiment")
+
+            # Check that a column exists after Experiment
+            if exp_idx + 1 >= len(cols):
+                raise ValueError("Column 'Experiment' exists but there is no column after it.")
+
+            # Select Experiment and the following column
+            df=df[ cols[exp_idx : exp_idx + 2] ]
+    
+    df.columns=["sample","group"]
+
+    return df
+
+
+
 def process_groups(groups):
-    # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups=groups.replace("\\x01", "" )
-    groups=groups.strip().strip(";")
-    groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
-    groups=[ s.split(";") for s in groups.split("\\n") ]
-    groups=pd.DataFrame(groups, columns=["sample","group"] )
+
+    if os.path.isfile( groups ) :
+        groups=load_table( file_path )
+
+    else:
+
+        # reading from a variable of the form "sample1:group;sample1:group;.."
+        groups=groups.replace("\\x01", "" )
+        groups=groups.strip().strip(";")
+        groups = re.sub(r'\s*([;])\s*', r'\\1', groups )
+        groups=[ s.split(";") for s in groups.split("\\n") ]
+        groups=pd.DataFrame(groups, columns=["sample","group"] )
+
     for c in groups.columns.tolist():
         groups[c]=groups[c].apply(lambda x: x.strip() )
     groups=groups.drop_duplicates(subset=["sample"])
