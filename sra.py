@@ -447,7 +447,7 @@ df = (
       .agg(lambda s: ",".join(sorted(set(s.dropna().astype(str)))))
 )
 
-if "{{groups}}" != "":
+if ( "{{groups}}" != "" ) and ( not os.path.isfile( "{{groups}}" )  ):
     # reading from a variable of the form "sample1:group;sample1:group;.."
     groups = "{{groups}}".replace("\\x01", "")
     groups = groups.strip().strip(";")
