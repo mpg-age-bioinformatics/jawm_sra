@@ -310,7 +310,7 @@ elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("PRJ") :
 elif "{{acc}}".startswith("PRJ") :
 
     groups=process_groups("{{groups}}")
-    samples_df=age.fetch_sra_metadata_table_for_bioproject( "{{acc}}" )[[ "Run", "Experiment", "LibraryLayout" ]]
+    samples_df=age.fetch_runinfo_for_bioproject( "{{acc}}" )[[ "Run", "Experiment", "LibraryLayout" ]]
     samples_df=pd.merge( groups, samples_df, left_on=[ "sample" ], right_on=[ "Experiment" ], how="inner" )
 
 if not os.path.isdir("{{raw_data}}" ) :
@@ -465,7 +465,12 @@ df["rep"] = add_rep_suffix(df["group"])
 # Collect concatenation jobs to run in parallel
 futures = []
 
-with ProcessPoolExecutor(max_workers=int({{parallel}})) as executor:
+if int({{parallel}}) == 0 :
+    w=1
+else:
+    w=int({{parallel}})
+
+with ProcessPoolExecutor(max_workers=w) as executor:
     for experiment in df["Experiment"].tolist():
         runs = df.loc[df["Experiment"] == experiment, "Run"].iloc[0].split(",")
         layout = df.loc[df["Experiment"] == experiment, "LibraryLayout"].iloc[0]
