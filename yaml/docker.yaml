@@ -3,10 +3,9 @@
   environment: "docker"
   var:
     mk.raw_data: "./test/test-output"
-    sraid: "SRR000001"
-    acc: "GSE129642"
-    # groups:
-    #   GSM3717989;WT-L4\n
-    #   GSM3717990;WT-L4\n
-    #   GSM3717991;sftb-1\n
-    #   GSM3717992;sftb-1
+    # map.groups: "./PRJNA592073.xlsx"
+    groups:
+      SRR10544927;N2_OP50\n
+      SRR10544928;rnp6_OP50\n
+      SRR10544931;N2_OP50\n
+      SRR10544932;rnp6_OP50

@@ -13,6 +13,58 @@ AGEPY_IMAGE="mpgagebioinformatics/agepy:9acb5de"
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 
+def get_bioproject_from_run(run_id: str, api_key: str | None = None) -> str | None:
+    """
+    Return BioProject accession (e.g., PRJNA279392) for a given SRA run accession (e.g., SRR1929665).
+    Uses NCBI ELink (sra -> bioproject) then ESummary (bioproject -> Project_Acc).
+    """
+    params_common = {}
+    if api_key:
+        params_common["api_key"] = api_key
+
+    # 1) Link: SRA (run accession) -> BioProject UID
+    r = requests.get(
+        f"{EUTILS_BASE}/elink.fcgi",
+        params={
+            "dbfrom": "sra",
+            "db": "bioproject",
+            "id": run_id,
+            "retmode": "json",
+            **params_common,
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    try:
+        linksets = data["linksets"]
+        links = linksets[0]["linksetdbs"][0]["links"]
+        bioproject_uid = links[0]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+    # 2) Summary: BioProject UID -> BioProject accession (PRJNA...)
+    r = requests.get(
+        f"{EUTILS_BASE}/esummary.fcgi",
+        params={
+            "db": "bioproject",
+            "id": bioproject_uid,
+            "retmode": "json",
+            **params_common,
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    summary = r.json()
+
+    try:
+        doc = summary["result"][str(bioproject_uid)]
+        return doc.get("project_acc") or doc.get("Project_Acc")
+    except (KeyError, TypeError):
+        return None
+
+
 
 def _headers(email: Optional[str] = None) -> dict:
     return {
@@ -125,37 +177,9 @@ def get_bioproject_organisms_from_sra(
     # Return as a sorted list to have deterministic order
     return sorted(organisms)
 
-# def get_geo_page_organism(accession: str) -> str:
-#     """
-#     Given a GEO accession like 'GSE129642', fetch the NCBI GEO page
-#     and extract the 'Organism' entry (e.g. 'Caenorhabditis elegans').
-#     """
-#     accession = accession.strip()
-#     url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}"
-
-#     resp = requests.get(url)
-#     resp.raise_for_status()
-
-#     soup = BeautifulSoup(resp.text, "html.parser")
-
-#     # Find the row in the main info table where first cell == "Organism"
-#     for row in soup.find_all("tr"):
-#         cells = row.find_all(["td", "th"])
-#         if len(cells) >= 2 and cells[0].get_text(strip=True) == "Organism":
-#             organism = cells[1].get_text(strip=True)
-#             return organism
-
-#     raise ValueError(f"Could not find 'Organism' entry on page for {accession!r}")
-
 def get_unique_sample_organism(accession: str):
     organisms = set()
 
-    # if accession.startswith("GSE"):
-
-    #     organism=get_geo_page_organism(accession)
-    #     organisms.add( organism )
-
-    # if accession.startswith("PRJ"):
     organisms = get_bioproject_organisms_from_sra(accession)
 
     if not organisms:
@@ -188,7 +212,7 @@ def get_nconcatenations( tsv ) :
 
 read_acc=jawm.Process( 
     name="read_acc",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f"{p.var['acc']}.samples.xlsx"  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra.samples.xlsx"  ) ) ,
     script="""#!/usr/bin/env python3
 import AGEpy as age
 import os
@@ -238,33 +262,18 @@ def load_table(file_path):
 
     if len( df.columns.tolist() ) > 2 :
 
-        cols = list(df.columns)
-        cols_=[ s for s in cols if s == "Experiment" ]+[ s for s in cols if s in ["group", "groups"] ]
-
-        if len(cols_) == 2 :
-            df=df[cols_]
-
-        else:
-
-            exp_idx = cols.index("Experiment")
-
-            # Check that a column exists after Experiment
-            if exp_idx + 1 >= len(cols):
-                raise ValueError("Column 'Experiment' exists but there is no column after it.")
-
-            # Select Experiment and the following column
-            df=df[ cols[exp_idx : exp_idx + 2] ]
+        print( "Imported table has more than 2 columns, collecting SRA IDs from first column and group information from second column." )
+        df=df[df.columns.tolist()[:2]]
     
     df.columns=["sample","group"]
 
+
     return df
-
-
 
 def process_groups(groups):
 
-    if os.path.isfile( groups ) :
-        groups=load_table( file_path )
+    if os.path.isfile( groups ) or url_exists( groups ) :
+        groups=load_table( groups )
 
     else:
 
@@ -275,63 +284,31 @@ def process_groups(groups):
         groups=[ s.split(";") for s in groups.split("\\n") ]
         groups=pd.DataFrame(groups, columns=["sample","group"] )
 
+
+    # do all kinds of irregular cleanings here
     for c in groups.columns.tolist():
-        groups[c]=groups[c].apply(lambda x: x.strip() )
+        groups[c]=groups[c].apply(lambda x: x.replace(" ","") )
+
     groups=groups.drop_duplicates(subset=["sample"])
     groups["group"] = groups["group"].apply(lambda x: age.safe_filename(x) )
     return groups
 
-if url_exists("{{url_datasheet}}"):
-    
-    # reading pre-ready datasheets from an url
-    samples_df = pd.read_csv("{{url_datasheet}}", sep="\\t")
 
-elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("GSE") :
-
-    # generating samples sheet from a geo accession number
-    samples_df, groups_df, runinfo_df= age.geo_to_sra_samples( "{{acc}}", email="{{email}}", api_key="{{api_key}}" )
-
-elif ( "{{groups}}" == "" ) and "{{acc}}".startswith("PRJ") :
-
-    raise ValueError("BioProject accessions must be supplemented with group information for each sample.")
-
-# elif "{{acc}}".startswith("GSE") :
-
-#     groups=process_groups( "{{groups}}" )
-#     gsms=groups["sample"].tolist()
-#     samples_df=age.gsms_to_sra_samples( gsms,  email="{{email}}", api_key="{{api_key}}" )
-#     samples_df=samples_df.drop( [ "group" ] , axis=1 )
-#     samples_df=pd.merge( groups, samples_df, on=["sample"], how="inner" )
-#     cols = list(samples_df.columns)
-#     col = cols.pop(7)
-#     cols.insert(5, col)
-#     samples_df = samples_df[cols]
-
-elif "{{acc}}".startswith("PRJ") :
-
-    groups=process_groups("{{groups}}")
-    samples_df=age.fetch_runinfo_for_bioproject( "{{acc}}" )[[ "Run", "Experiment", "LibraryLayout" ]]
-    samples_df=pd.merge( groups, samples_df, left_on=[ "sample" ], right_on=[ "Experiment" ], how="inner" )
+samples_df=process_groups("{{groups}}")
 
 if not os.path.isdir("{{raw_data}}" ) :
     os.makedirs( "{{raw_data}}" )
 
-outfile_xlsx=os.path.join( "{{raw_data}}" , "{{acc}}"+".samples.xlsx" )
-outfile_tsv=os.path.join( "{{raw_data}}" , "{{acc}}"+".samples.tsv" )
+outfile_xlsx=os.path.join( "{{raw_data}}" , "sra.samples.xlsx" )
+outfile_tsv=os.path.join( "{{raw_data}}" , "sra.samples.tsv" )
 
 samples_df.to_excel( outfile_xlsx, index=False )
 samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 """,
     var={
-        "email":"",
-        "api_key":""
         },
     desc={
-        "email" : "email passed to NCBI E-utilities",
-        "api_key" : "NCBI API key for higher request limits",
         "raw_data" : "Downloads folder.",
-        "acc" : "geo accession or sra bioproject",
-        "url_datasheet" : "",
         "groups" : "Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"
@@ -341,7 +318,7 @@ samples_df.to_csv( outfile_tsv, sep="\\t", index=False )
 
 prefetch=jawm.Process( 
     name="prefetch",
-    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", f'{p.var["sraid"]}.touch'  ) ) ,
+    when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", f'{ p.var["sraid"] }.touch'  ) ) ,
     script="""#!/bin/bash
 cd {{raw_data}}
 mkdir sra
@@ -393,7 +370,6 @@ rm -rf {{sraid}}
     container="mpgagebioinformatics/sra:3.2.1"
 )
 
-
 relabel_sra=jawm.Process( 
     name="relabel_sra",
     when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], "sra", "relabel_sra.touch"  ) ) ,
@@ -437,30 +413,15 @@ def add_rep_suffix(groups):
 
 raw_data = os.path.abspath("{{raw_data}}")
 
-input_xlsx = os.path.join(raw_data, "{{acc}}" + ".samples.xlsx")
+input_xlsx = os.path.join(raw_data, "sra.samples.xlsx")
 
 os.chdir(f"{{raw_data}}/sra")
 
 df = pd.read_excel(input_xlsx)
-df = (
-    df.groupby("sample", as_index=False)
-      .agg(lambda s: ",".join(sorted(set(s.dropna().astype(str)))))
-)
 
-if ( "{{groups}}" != "" ) and ( not os.path.isfile( "{{groups}}" )  ):
-    # reading from a variable of the form "sample1:group;sample1:group;.."
-    groups = "{{groups}}".replace("\\x01", "")
-    groups = groups.strip().strip(";")
-    groups = re.sub(r'\s*([;])\s*', r'\\1', groups)
-    groups = [s.split(";") for s in groups.split("\\n")]
-    groups = pd.DataFrame(groups, columns=["sample", "group"])
-    groups = groups.drop(["group"], axis=1)
-    groups["sample"] = groups["sample"].apply(lambda x: x.strip())
-    df["sample"] = df["sample"].apply(lambda x: x.strip())
-    df = pd.merge(groups, df, on=["sample"], how="inner")
-
-df["group"] = df["group"].apply(lambda x: age.safe_filename(x))
 df["rep"] = add_rep_suffix(df["group"])
+
+df["file_prefix"]=df["group"]+"."+df["rep"]
 
 # Collect concatenation jobs to run in parallel
 futures = []
@@ -471,11 +432,14 @@ else:
     w=int({{parallel}})
 
 with ProcessPoolExecutor(max_workers=w) as executor:
-    for experiment in df["Experiment"].tolist():
-        runs = df.loc[df["Experiment"] == experiment, "Run"].iloc[0].split(",")
-        layout = df.loc[df["Experiment"] == experiment, "LibraryLayout"].iloc[0]
-        rep = df.loc[df["Experiment"] == experiment, "rep"].iloc[0]
-        group = df.loc[df["Experiment"] == experiment, "group"].iloc[0]
+    for file_prefix in df["file_prefix"].tolist():
+        runs = df.loc[df["file_prefix"] == file_prefix, "sample"].iloc[0].split(",")
+        # layout = df.loc[df["file_prefix"] == file_prefix, "LibraryLayout"].iloc[0]
+        rep = df.loc[df["file_prefix"] == file_prefix, "rep"].iloc[0]
+        group = df.loc[df["file_prefix"] == file_prefix, "group"].iloc[0]
+
+        if os.path.isfile( f"{runs[0]}_1.fastq.gz" ) and os.path.isfile( f"{runs[0]}_2.fastq.gz" ) :
+            layout="PAIRED"
 
         # Single run: just rename synchronously
         if len(runs) == 1:
@@ -538,7 +502,6 @@ Path(os.path.join(raw_data, "sra", "relabel_sra.touch")).touch()
     desc={
         "concat": "'stream or text for how you want to concat fastq.gz files when multiple files per sample exist. Default='stream' ",
         "raw_data": "Downloads folder.",
-        "acc":"geo accession",
         "groups":"Instead of giving in an accession number or a preset sample sheet you can also\
             supply a table in string form '<geo_sample>;<group_name>\n<geo_sample>;<group_name>\n..' \
             otherwise leave it as ''"    },
@@ -562,6 +525,17 @@ unpigz {{sraid}}.fastq.gz
     container="mpgagebioinformatics/sra:3.2.1"
 )
 
+def read_samples_file( input_tsv ):
+    sra_ids = []
+    with open(input_tsv, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            sra_ids = sra_ids + line.split("\t", 1)[0].split(",")
+    sra_ids=sra_ids[1:]
+    return sra_ids
+
 
 if __name__ == "__main__":
     import sys
@@ -569,32 +543,25 @@ if __name__ == "__main__":
 
     # pre-download images to avoid parallel 
     # processes concurring to download the same image
-    images=get_image( [ read_geo.container, prefetch.container ] )
+    images=get_image( [ read_acc.container, prefetch.container ] )
 
     # parse arguments
     workflows, var, args, unknown_args=jawm.utils.parse_arguments( ["main","sra","test", "geo"] )
 
-    if workflow( ["geo"], workflows ) :
-        import pandas as pd
-
-        # read the respective geo accession and create samples sheet
-        read_geo.execute()
-        jawm.Process.wait( read_geo.hash )
-
-        input_xlsx=os.path.join( read_geo.var["raw_data"], f"{read_geo.var['acc']}.samples.xlsx"  )
-
-        df=pd.read_excel( input_xlsx )
-        sra_ids=df["Run"].tolist()
-
-    else:
-
-        sra_ids=[]
-
     # usage: 
     if workflow( ["main","sra","test"], workflows ) :  
 
-        if not sra_ids : 
+        if read_acc.var.get( "groups", False ) :
+
+            # read the respective geo accession and create samples sheet
+            read_acc.execute()
+            jawm.Process.wait( read_acc.hash )
+
+            sra_ids = read_samples_file( os.path.join( read_acc.var["raw_data"], "sra.samples.tsv"  ) )
+
+        else : 
             sra_ids =  prefetch.var["sraid"].split(",")  
+
 
         fastq_dump_jobs=[]
         for sraid in sra_ids : 
@@ -614,11 +581,11 @@ if __name__ == "__main__":
         
         jawm.Process.wait( fastq_dump_jobs )
 
-    if workflow( ["geo"], workflows ) and workflow( ["sra"], workflows ) :
+        if read_acc.var.get( "groups", False ) :
 
-        relabel_sra.execute( )
+            relabel_sra.execute( )
 
-        jawm.Process.wait( relabel_sra.hash )
+            jawm.Process.wait( relabel_sra.hash )
 
     if workflow( "test", workflows ) :
 
