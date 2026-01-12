@@ -191,22 +191,18 @@ def get_unique_sample_organism(accession: str):
     return organisms.pop().lower().replace(" ", "_")
 
 
-def get_nconcatenations( tsv ) :
+def get_nconcatenations( tsv, raw_data ) :
     first_read = []
-    second_read = [ ] 
+    second_read = []
+    sra_raw=os.path.join( raw_data, "sra")
     with open(tsv, "r") as f:
         for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if parts:  # skip empty lines
-                first_read.append(parts[0])
-                if parts[4] == "PAIRED" :
-                    second_read.append(parts[0])
+            runs = line.rstrip("\n").split("\t")[0].split(',')
+            first_read.append( len(runs) - 1 )
+            if os.path.isfile( os.path.join( sra_raw, f"{runs[0]}_1.fastq.gz" ) ) and os.path.isfile( os.path.join( sra_raw,  f"{runs[0]}_2.fastq.gz" ) ):
+                second_read.append( len(runs) - 1 )
 
-    # Count occurrences
-    counts_1 = Counter(first_read)
-    counts_2 = Counter(second_read)
-
-    num_duplicated_items = sum( 1 for c in counts_1.values() if c > 1 ) + sum( 1 for c in counts_2.values() if c > 1 )
+    num_duplicated_items = sum( first_read ) + sum( second_read )
 
     return num_duplicated_items
 
