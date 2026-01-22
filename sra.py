@@ -417,6 +417,9 @@ df = pd.read_excel(input_xlsx)
 
 df["rep"] = add_rep_suffix(df["group"])
 
+df.to_excel(os.path.join(raw_data, "samples.mapping.xlsx"), index=False )
+
+
 df["file_prefix"]=df["group"]+"."+df["rep"]
 
 # Collect concatenation jobs to run in parallel
