@@ -1,0 +1,19 @@
+- scope: process
+  name: read_acc
+  container: /nexus/posix0/MAGE-flaski/service/images/jawm/agepy-9acb5de.sif
+
+- scope: process
+  name: prefetch
+  container: /nexus/posix0/MAGE-flaski/service/images/jawm/sra-3.2.1.sif
+
+- scope: process
+  name: fastq_dump
+  container: /nexus/posix0/MAGE-flaski/service/images/jawm/sra-3.2.1.sif
+
+- scope: process
+  name: relabel_sra
+  container: /nexus/posix0/MAGE-flaski/service/images/jawm/agepy-9acb5de.sif
+
+- scope: process
+  name: test_unpigz
+  container: /nexus/posix0/MAGE-flaski/service/images/jawm/sra-3.2.1.sif
