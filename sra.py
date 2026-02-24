@@ -439,6 +439,8 @@ with ProcessPoolExecutor(max_workers=w) as executor:
 
         if os.path.isfile( f"{runs[0]}_1.fastq.gz" ) and os.path.isfile( f"{runs[0]}_2.fastq.gz" ) :
             layout="PAIRED"
+        else:
+            layout="SINGLE"
 
         # Single run: just rename synchronously
         if len(runs) == 1:
