@@ -515,7 +515,7 @@ test_unpigz=jawm.Process(
     name="test_unpigz",
     when=lambda p: not os.path.isfile( os.path.join( p.var["raw_data"], f'{p.var["sraid"]}.fastq'  ) ) ,
     script="""#!/bin/bash
-cd {{raw_data}}
+cd {{raw_data}}/sra
 unpigz {{sraid}}.fastq.gz
 """,
     var={},

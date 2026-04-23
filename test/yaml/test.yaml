@@ -5,5 +5,5 @@
     sraid: "SRR000001"
  
 - scope: hash
-  include: ./test/test-output/SRR000001.fastq
-  overwrite: true # overwrite any existing hash already present on the logs folder
+  include: ./test/test-output/sra/SRR000001.fastq
+  # overwrite: true # overwrite any existing hash already present on the logs folder
